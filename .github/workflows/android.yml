@@ -16,6 +16,20 @@ jobs:
           channel: stable
           cache: true
       - run: flutter create . --platforms=android
+      - run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('android/app/build.gradle.kts')
+          s = p.read_text()
+          if 'isCoreLibraryDesugaringEnabled = true' not in s:
+              s = s.replace('compileOptions {', 'compileOptions {\n        isCoreLibraryDesugaringEnabled = true')
+          if 'coreLibraryDesugaring("com.android.tools:desugar_jdk_libs' not in s:
+              marker = 'dependencies {'
+              dep = 'dependencies {\n    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")'
+              s = s.replace(marker, dep, 1)
+          p.write_text(s)
+          print(p.read_text())
+          PY
       - run: flutter pub get
       - run: flutter build apk --release
       - uses: actions/upload-artifact@v4
