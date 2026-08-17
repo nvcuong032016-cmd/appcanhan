@@ -1,109 +1,689 @@
-import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  final store = Store();
-  runApp(App(store));
-  // Cho Flutter render frame đầu tiên trước khi đọc dữ liệu nền.
-  Timer(const Duration(milliseconds: 150), store.load);
+  runApp(const MrCuongApp());
 }
 
 class Task {
-  String title; bool done;
+  String title;
+  bool done;
   Task(this.title, {this.done = false});
-  Map<String, dynamic> j() => {'title': title, 'done': done};
-  factory Task.f(Map<String, dynamic> j) => Task(j['title'] as String, done: j['done'] ?? false);
+  Map<String, dynamic> toJson() => {'title': title, 'done': done};
+  factory Task.fromJson(Map<String, dynamic> j) => Task(
+        j['title']?.toString() ?? '',
+        done: j['done'] == true,
+      );
 }
 
 class Project {
-  String name; List<Task> tasks;
+  String name;
+  List<Task> tasks;
   Project(this.name, [this.tasks = const []]);
-  int get done => tasks.where((e) => e.done).length;
-  Map<String, dynamic> j() => {'name': name, 'tasks': tasks.map((e) => e.j()).toList()};
-  factory Project.f(Map<String, dynamic> j) => Project(j['name'] as String, (j['tasks'] as List).map((e) => Task.f(Map<String, dynamic>.from(e))).toList());
+  int get completed => tasks.where((t) => t.done).length;
+  double get progress => tasks.isEmpty ? 0 : completed / tasks.length;
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        'tasks': tasks.map((t) => t.toJson()).toList(),
+      };
+  factory Project.fromJson(Map<String, dynamic> j) => Project(
+        j['name']?.toString() ?? '',
+        (j['tasks'] as List? ?? [])
+            .map((e) => Task.fromJson(Map<String, dynamic>.from(e)))
+            .toList(),
+      );
 }
 
 class CardData {
-  String bank, last4; int statement, payment; double balance, limit;
-  CardData(this.bank, this.last4, this.statement, this.payment, {this.balance = 0, this.limit = 0});
-  Map<String, dynamic> j() => {'bank': bank, 'last4': last4, 'statement': statement, 'payment': payment, 'balance': balance, 'limit': limit};
-  factory CardData.f(Map<String, dynamic> j) => CardData(j['bank'] as String, j['last4'] as String, j['statement'] as int, j['payment'] as int, balance: (j['balance'] ?? 0).toDouble(), limit: (j['limit'] ?? 0).toDouble());
+  String bank;
+  String last4;
+  int statementDay;
+  int paymentDay;
+  double balance;
+  double limit;
+  CardData({
+    required this.bank,
+    required this.last4,
+    required this.statementDay,
+    required this.paymentDay,
+    this.balance = 0,
+    this.limit = 0,
+  });
+  Map<String, dynamic> toJson() => {
+        'bank': bank,
+        'last4': last4,
+        'statementDay': statementDay,
+        'paymentDay': paymentDay,
+        'balance': balance,
+        'limit': limit,
+      };
+  factory CardData.fromJson(Map<String, dynamic> j) => CardData(
+        bank: j['bank']?.toString() ?? '',
+        last4: j['last4']?.toString() ?? '',
+        statementDay: (j['statementDay'] as num?)?.toInt() ?? 1,
+        paymentDay: (j['paymentDay'] as num?)?.toInt() ?? 1,
+        balance: (j['balance'] as num?)?.toDouble() ?? 0,
+        limit: (j['limit'] as num?)?.toDouble() ?? 0,
+      );
 }
 
 class Loan {
-  String name; double amount, monthly; int term, paid, payment;
-  Loan(this.name, this.amount, this.monthly, this.term, this.paid, this.payment);
-  Map<String, dynamic> j() => {'name': name, 'amount': amount, 'monthly': monthly, 'term': term, 'paid': paid, 'payment': payment};
-  factory Loan.f(Map<String, dynamic> j) => Loan(j['name'] as String, (j['amount'] ?? 0).toDouble(), (j['monthly'] ?? 0).toDouble(), j['term'] as int, j['paid'] as int, j['payment'] as int);
+  String name;
+  double amount;
+  double monthly;
+  int term;
+  int paid;
+  int paymentDay;
+  Loan({
+    required this.name,
+    required this.amount,
+    required this.monthly,
+    required this.term,
+    required this.paid,
+    required this.paymentDay,
+  });
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        'amount': amount,
+        'monthly': monthly,
+        'term': term,
+        'paid': paid,
+        'paymentDay': paymentDay,
+      };
+  factory Loan.fromJson(Map<String, dynamic> j) => Loan(
+        name: j['name']?.toString() ?? '',
+        amount: (j['amount'] as num?)?.toDouble() ?? 0,
+        monthly: (j['monthly'] as num?)?.toDouble() ?? 0,
+        term: (j['term'] as num?)?.toInt() ?? 0,
+        paid: (j['paid'] as num?)?.toInt() ?? 0,
+        paymentDay: (j['paymentDay'] as num?)?.toInt() ?? 1,
+      );
 }
 
-class Store extends ChangeNotifier {
-  List<Project> projects = []; List<CardData> cards = []; List<Loan> loans = [];
+class AppData extends ChangeNotifier {
+  List<Project> projects = [];
+  List<CardData> cards = [];
+  List<Loan> loans = [];
+  bool ready = false;
+
   Future<void> load() async {
+    final prefs = await SharedPreferences.getInstance();
     try {
-      final p = await SharedPreferences.getInstance();
-      final a = p.getString('projects'), b = p.getString('cards'), d = p.getString('loans');
-      if (a != null) projects = (jsonDecode(a) as List).map((e) => Project.f(Map<String, dynamic>.from(e))).toList();
-      if (b != null) cards = (jsonDecode(b) as List).map((e) => CardData.f(Map<String, dynamic>.from(e))).toList();
-      if (d != null) loans = (jsonDecode(d) as List).map((e) => Loan.f(Map<String, dynamic>.from(e))).toList();
+      final p = prefs.getString('projects');
+      final c = prefs.getString('cards');
+      final l = prefs.getString('loans');
+      if (p != null) {
+        projects = (jsonDecode(p) as List)
+            .map((e) => Project.fromJson(Map<String, dynamic>.from(e)))
+            .toList();
+      }
+      if (c != null) {
+        cards = (jsonDecode(c) as List)
+            .map((e) => CardData.fromJson(Map<String, dynamic>.from(e)))
+            .toList();
+      }
+      if (l != null) {
+        loans = (jsonDecode(l) as List)
+            .map((e) => Loan.fromJson(Map<String, dynamic>.from(e)))
+            .toList();
+      }
     } catch (_) {}
-    if (projects.isEmpty) projects = [Project('DVCI Đà Lạt', [Task('Lập kế hoạch', done: true), Task('Theo dõi tiến độ'), Task('Đăng hồ sơ'), Task('Kiểm tra kết quả'), Task('Ký hợp đồng')])];
-    if (cards.isEmpty) cards = [CardData('VPBank', '1234', 15, 5, balance: 25000000, limit: 100000000), CardData('Techcombank', '5678', 20, 10, balance: 12000000, limit: 50000000)];
-    if (loans.isEmpty) loans = [Loan('Khoản vay A', 20000000, 1800000, 12, 5, 10)];
+
+    if (projects.isEmpty) {
+      projects = [
+        Project('DVCI Đà Lạt', [
+          Task('Lập kế hoạch', done: true),
+          Task('Theo dõi tiến độ'),
+          Task('Đăng hồ sơ'),
+          Task('Kiểm tra kết quả'),
+          Task('Ký hợp đồng'),
+        ]),
+      ];
+    }
+    if (cards.isEmpty) {
+      cards = [
+        CardData(
+          bank: 'VPBank',
+          last4: '1234',
+          statementDay: 15,
+          paymentDay: 5,
+          balance: 25000000,
+          limit: 100000000,
+        ),
+        CardData(
+          bank: 'Techcombank',
+          last4: '5678',
+          statementDay: 20,
+          paymentDay: 10,
+          balance: 12000000,
+          limit: 50000000,
+        ),
+      ];
+    }
+    if (loans.isEmpty) {
+      loans = [
+        Loan(
+          name: 'Khoản vay A',
+          amount: 20000000,
+          monthly: 1800000,
+          term: 12,
+          paid: 5,
+          paymentDay: 10,
+        ),
+      ];
+    }
+    ready = true;
     notifyListeners();
   }
+
   Future<void> save() async {
-    final p = await SharedPreferences.getInstance();
-    await p.setString('projects', jsonEncode(projects.map((e) => e.j()).toList()));
-    await p.setString('cards', jsonEncode(cards.map((e) => e.j()).toList()));
-    await p.setString('loans', jsonEncode(loans.map((e) => e.j()).toList()));
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+        'projects', jsonEncode(projects.map((e) => e.toJson()).toList()));
+    await prefs.setString(
+        'cards', jsonEncode(cards.map((e) => e.toJson()).toList()));
+    await prefs.setString(
+        'loans', jsonEncode(loans.map((e) => e.toJson()).toList()));
     notifyListeners();
   }
 }
 
-class App extends StatelessWidget {
-  final Store s; const App(this.s, {super.key});
-  @override Widget build(BuildContext c) => AnimatedBuilder(animation: s, builder: (_, __) => MaterialApp(debugShowCheckedModeBanner: false, title: 'Mr Cuog', theme: ThemeData(useMaterial3: true, colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xff1769e0)), scaffoldBackgroundColor: const Color(0xfff7f8fa)), home: Home(s)));
+class MrCuongApp extends StatefulWidget {
+  const MrCuongApp({super.key});
+  @override
+  State<MrCuongApp> createState() => _MrCuongAppState();
 }
 
-class Home extends StatefulWidget { final Store s; const Home(this.s, {super.key}); @override State<Home> createState() => _HomeState(); }
-class _HomeState extends State<Home> {
-  int tab = 0;
-  @override Widget build(BuildContext c) {
-    final p = [Dash(widget.s), Work(widget.s), Personal(widget.s)];
-    return Scaffold(body: SafeArea(child: p[tab]), bottomNavigationBar: NavigationBar(selectedIndex: tab, onDestinationSelected: (i) => setState(() => tab = i), destinations: const [NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: 'Trang chủ'), NavigationDestination(icon: Icon(Icons.checklist_outlined), selectedIcon: Icon(Icons.checklist), label: 'Công việc'), NavigationDestination(icon: Icon(Icons.person_outline), selectedIcon: Icon(Icons.person), label: 'Cá nhân')]));
+class _MrCuongAppState extends State<MrCuongApp> {
+  final data = AppData();
+  @override
+  void initState() {
+    super.initState();
+    data.load();
+  }
+
+  @override
+  void dispose() {
+    data.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: data,
+      builder: (context, _) => MaterialApp(
+        debugShowCheckedModeBanner: false,
+        title: 'Mr Cuog',
+        theme: ThemeData(
+          useMaterial3: true,
+          colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xff1769e0)),
+          scaffoldBackgroundColor: const Color(0xfff7f8fa),
+        ),
+        home: data.ready ? HomePage(data: data) : const LoadingPage(),
+      ),
+    );
   }
 }
 
-class Dash extends StatelessWidget {
-  final Store s; const Dash(this.s, {super.key});
-  @override Widget build(BuildContext c) => ListView(padding: const EdgeInsets.all(18), children: [const Text('Trang chủ', style: TextStyle(fontSize: 27, fontWeight: FontWeight.w800)), const SizedBox(height: 18), const Text('Hôm nay', style: TextStyle(color: Color(0xff1769e0), fontWeight: FontWeight.w800)), const SizedBox(height: 8), Card(child: Padding(padding: const EdgeInsets.all(14), child: Column(children: const [_R('09:00', 'Công việc cần làm'), Divider(), _R('14:00', 'Theo dõi tiến độ'), Divider(), _R('20:00', 'Kiểm tra thanh toán')]))), const SizedBox(height: 18), const Text('Công việc', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)), ...s.projects.map((p) => PC(p, () => Navigator.push(c, MaterialPageRoute(builder: (_) => ProjectPage(s, p))))), const SizedBox(height: 14), const Text('Cá nhân', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)), Row(children: [Expanded(child: SC(Icons.credit_card, 'Thẻ tín dụng', '${s.cards.length} thẻ')), const SizedBox(width: 10), Expanded(child: SC(Icons.account_balance, 'Khoản vay', '${s.loans.length} khoản'))])]);
+class LoadingPage extends StatelessWidget {
+  const LoadingPage({super.key});
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(
+      body: Center(child: CircularProgressIndicator()),
+    );
+  }
 }
 
-class _R extends StatelessWidget { final String a, b; const _R(this.a, this.b); @override Widget build(BuildContext c) => Row(children: [SizedBox(width: 55, child: Text(a, style: const TextStyle(color: Colors.red, fontWeight: FontWeight.w800))), Expanded(child: Text(b, style: const TextStyle(fontWeight: FontWeight.w600))), const Icon(Icons.chevron_right, size: 20)]); }
-class SC extends StatelessWidget { final IconData i; final String a, b; const SC(this.i, this.a, this.b); @override Widget build(BuildContext c) => Card(child: Padding(padding: const EdgeInsets.all(15), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Icon(i, color: const Color(0xff5d48d9)), const SizedBox(height: 8), Text(a, style: const TextStyle(fontWeight: FontWeight.w700)), Text(b, style: const TextStyle(color: Colors.black54))]))); }
-
-class PC extends StatelessWidget {
-  final Project p; final VoidCallback tap; const PC(this.p, this.tap, {super.key});
-  @override Widget build(BuildContext c) { final x = p.tasks.isEmpty ? 0.0 : p.done / p.tasks.length; return Card(child: InkWell(onTap: tap, child: Padding(padding: const EdgeInsets.all(14), child: Column(children: [Row(children: [const Icon(Icons.folder_rounded, color: Color(0xff1769e0)), const SizedBox(width: 10), Expanded(child: Text(p.name, style: const TextStyle(fontWeight: FontWeight.w800))), Text('${(x * 100).round()}%')]), const SizedBox(height: 8), LinearProgressIndicator(value: x, minHeight: 5), const SizedBox(height: 5), Align(alignment: Alignment.centerLeft, child: Text('${p.done}/${p.tasks.length} nhiệm vụ', style: const TextStyle(fontSize: 11, color: Colors.black54)))]))); }
+class HomePage extends StatefulWidget {
+  final AppData data;
+  const HomePage({super.key, required this.data});
+  @override
+  State<HomePage> createState() => _HomePageState();
 }
 
-class Work extends StatelessWidget {
-  final Store s; const Work(this.s, {super.key});
-  @override Widget build(BuildContext c) => Scaffold(backgroundColor: Colors.transparent, appBar: AppBar(title: const Text('Công việc', style: TextStyle(fontWeight: FontWeight.w800)), actions: [IconButton(onPressed: () async { final n = await dlg(c, 'Tạo dự án'); if (n?.isNotEmpty ?? false) { s.projects.add(Project(n!)); await s.save(); } }, icon: const Icon(Icons.add, color: Color(0xff1769e0)))]), body: ListView(padding: const EdgeInsets.all(12), children: s.projects.map((p) => PC(p, () => Navigator.push(c, MaterialPageRoute(builder: (_) => ProjectPage(s, p))))).toList()));
+class _HomePageState extends State<HomePage> {
+  int tab = 0;
+  @override
+  Widget build(BuildContext context) {
+    final pages = [
+      DashboardPage(data: widget.data),
+      WorkPage(data: widget.data),
+      PersonalPage(data: widget.data),
+    ];
+    return Scaffold(
+      body: SafeArea(child: pages[tab]),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: tab,
+        onDestinationSelected: (i) => setState(() => tab = i),
+        destinations: const [
+          NavigationDestination(
+              icon: Icon(Icons.home_outlined),
+              selectedIcon: Icon(Icons.home),
+              label: 'Trang chủ'),
+          NavigationDestination(
+              icon: Icon(Icons.checklist_outlined),
+              selectedIcon: Icon(Icons.checklist),
+              label: 'Công việc'),
+          NavigationDestination(
+              icon: Icon(Icons.person_outline),
+              selectedIcon: Icon(Icons.person),
+              label: 'Cá nhân'),
+        ],
+      ),
+    );
+  }
 }
 
-class ProjectPage extends StatefulWidget { final Store s; final Project p; const ProjectPage(this.s, this.p, {super.key}); @override State<ProjectPage> createState() => _ProjectState(); }
-class _ProjectState extends State<ProjectPage> {
-  @override Widget build(BuildContext c) { final p = widget.p; final x = p.tasks.isEmpty ? 0.0 : p.done / p.tasks.length; return Scaffold(appBar: AppBar(title: Text(p.name, style: const TextStyle(fontWeight: FontWeight.w800)), actions: [IconButton(onPressed: () async { final n = await dlg(c, 'Thêm nhiệm vụ'); if (n?.isNotEmpty ?? false) { p.tasks.add(Task(n!)); await widget.s.save(); setState(() {}); } }, icon: const Icon(Icons.add))]), body: ListView(padding: const EdgeInsets.all(16), children: [Container(padding: const EdgeInsets.all(18), decoration: BoxDecoration(color: const Color(0xff3478e8), borderRadius: BorderRadius.circular(16)), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(p.name, style: const TextStyle(color: Colors.white, fontSize: 21, fontWeight: FontWeight.w800)), Text('${p.done}/${p.tasks.length} nhiệm vụ hoàn thành', style: const TextStyle(color: Colors.white70)), const SizedBox(height: 10), LinearProgressIndicator(value: x, minHeight: 7), const SizedBox(height: 6), Text('${(x * 100).round()}%', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800))]),), const SizedBox(height: 15), ...p.tasks.map((t) => Card(child: CheckboxListTile(value: t.done, onChanged: (_) async { t.done = !t.done; await widget.s.save(); setState(() {}); }, title: Text(t.title, style: TextStyle(decoration: t.done ? TextDecoration.lineThrough : null, fontWeight: FontWeight.w600))))]); }
+class DashboardPage extends StatelessWidget {
+  final AppData data;
+  const DashboardPage({super.key, required this.data});
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: const EdgeInsets.all(18),
+      children: [
+        const Text('Trang chủ',
+            style: TextStyle(fontSize: 27, fontWeight: FontWeight.w800)),
+        const SizedBox(height: 18),
+        const Text('Hôm nay',
+            style: TextStyle(
+                color: Color(0xff1769e0), fontWeight: FontWeight.w800)),
+        const SizedBox(height: 8),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              children: const [
+                ReminderRow(time: '09:00', title: 'Công việc cần làm'),
+                Divider(),
+                ReminderRow(time: '14:00', title: 'Theo dõi tiến độ'),
+                Divider(),
+                ReminderRow(time: '20:00', title: 'Kiểm tra thanh toán'),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 18),
+        const Text('Công việc',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+        ...data.projects.map(
+          (p) => ProjectCard(
+            project: p,
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                  builder: (_) => ProjectPage(data: data, project: p)),
+            ),
+          ),
+        ),
+        const SizedBox(height: 14),
+        const Text('Cá nhân',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+        Row(
+          children: [
+            Expanded(
+                child: SummaryCard(
+                    icon: Icons.credit_card,
+                    title: 'Thẻ tín dụng',
+                    value: '${data.cards.length} thẻ')),
+            const SizedBox(width: 10),
+            Expanded(
+                child: SummaryCard(
+                    icon: Icons.account_balance,
+                    title: 'Khoản vay',
+                    value: '${data.loans.length} khoản')),
+          ],
+        ),
+      ],
+    );
+  }
 }
 
-class Personal extends StatelessWidget { final Store s; const Personal(this.s, {super.key}); @override Widget build(BuildContext c) => DefaultTabController(length: 2, child: Scaffold(backgroundColor: Colors.transparent, appBar: AppBar(title: const Text('Cá nhân', style: TextStyle(fontWeight: FontWeight.w800)), bottom: const TabBar(tabs: [Tab(text: 'Thẻ tín dụng'), Tab(text: 'Khoản vay')])), body: TabBarView(children: [ListView(padding: const EdgeInsets.all(12), children: s.cards.map((x) => CardTile(x)).toList()), ListView(padding: const EdgeInsets.all(12), children: s.loans.map((x) => LoanTile(x)).toList())])); }
-class CardTile extends StatelessWidget { final CardData x; const CardTile(this.x); @override Widget build(BuildContext c) => Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Row(children: [const Icon(Icons.credit_card, color: Color(0xff5d48d9)), const SizedBox(width: 10), Expanded(child: Text(x.bank, style: const TextStyle(fontWeight: FontWeight.w800))), Text('**** ${x.last4}')]), const SizedBox(height: 14), Text('Ngày sao kê: ${x.statement} hàng tháng'), Text('Ngày thanh toán: ${x.payment} hàng tháng'), const SizedBox(height: 10), LinearProgressIndicator(value: x.limit == 0 ? 0 : (x.balance / x.limit).clamp(0, 1)), const SizedBox(height: 7), Text('Dư hiện tại: ${money(x.balance)}', style: const TextStyle(fontWeight: FontWeight.w700))]))); }
-class LoanTile extends StatelessWidget { final Loan x; const LoanTile(this.x); @override Widget build(BuildContext c) => Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Row(children: [const Icon(Icons.account_balance, color: Color(0xff1769e0)), const SizedBox(width: 10), Expanded(child: Text(x.name, style: const TextStyle(fontWeight: FontWeight.w800)))]), const SizedBox(height: 12), Text('Số tiền vay: ${money(x.amount)}'), Text('Mỗi tháng: ${money(x.monthly)}'), Text('Đã trả: ${x.paid}/${x.term} kỳ'), const SizedBox(height: 8), LinearProgressIndicator(value: x.term == 0 ? 0 : x.paid / x.term), const SizedBox(height: 8), Text('Kỳ tới: ngày ${x.payment}', style: const TextStyle(fontWeight: FontWeight.w700))]))); }
+class ReminderRow extends StatelessWidget {
+  final String time;
+  final String title;
+  const ReminderRow({super.key, required this.time, required this.title});
+  @override
+  Widget build(BuildContext context) => Row(
+        children: [
+          SizedBox(
+              width: 55,
+              child: Text(time,
+                  style: const TextStyle(
+                      color: Colors.red, fontWeight: FontWeight.w800))),
+          Expanded(
+              child: Text(title,
+                  style: const TextStyle(fontWeight: FontWeight.w600))),
+          const Icon(Icons.chevron_right, size: 20),
+        ],
+      );
+}
 
-Future<String?> dlg(BuildContext c, String title) async { final t = TextEditingController(); return showDialog<String>(context: c, builder: (_) => AlertDialog(title: Text(title), content: TextField(controller: t, autofocus: true, decoration: const InputDecoration(labelText: 'Tên')), actions: [TextButton(onPressed: () => Navigator.pop(c), child: const Text('Hủy')), FilledButton(onPressed: () => Navigator.pop(c, t.text.trim()), child: const Text('Lưu'))])); }
-String money(double v) { final n = v.round().toString(); var r = ''; for (var i = 0; i < n.length; i++) { if (i > 0 && (n.length - i) % 3 == 0) r += '.'; r += n[i]; } return '$r đ'; }
+class SummaryCard extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String value;
+  const SummaryCard(
+      {super.key,
+      required this.icon,
+      required this.title,
+      required this.value});
+  @override
+  Widget build(BuildContext context) => Card(
+        child: Padding(
+          padding: const EdgeInsets.all(15),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(icon, color: const Color(0xff5d48d9)),
+              const SizedBox(height: 8),
+              Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
+              Text(value, style: const TextStyle(color: Colors.black54)),
+            ],
+          ),
+        ),
+      );
+}
+
+class ProjectCard extends StatelessWidget {
+  final Project project;
+  final VoidCallback onTap;
+  const ProjectCard({super.key, required this.project, required this.onTap});
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.folder_rounded,
+                      color: Color(0xff1769e0)),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(project.name,
+                        style: const TextStyle(fontWeight: FontWeight.w800)),
+                  ),
+                  Text('${(project.progress * 100).round()}%'),
+                ],
+              ),
+              const SizedBox(height: 8),
+              LinearProgressIndicator(value: project.progress, minHeight: 5),
+              const SizedBox(height: 5),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text('${project.completed}/${project.tasks.length} nhiệm vụ',
+                    style:
+                        const TextStyle(fontSize: 11, color: Colors.black54)),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class WorkPage extends StatelessWidget {
+  final AppData data;
+  const WorkPage({super.key, required this.data});
+  Future<void> addProject(BuildContext context) async {
+    final name = await textDialog(context, 'Tạo dự án');
+    if (name != null && name.isNotEmpty) {
+      data.projects.add(Project(name));
+      await data.save();
+    }
+  }
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      appBar: AppBar(
+        title: const Text('Công việc',
+            style: TextStyle(fontWeight: FontWeight.w800)),
+        actions: [
+          IconButton(
+              onPressed: () => addProject(context),
+              icon: const Icon(Icons.add, color: Color(0xff1769e0))),
+        ],
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(12),
+        children: data.projects
+            .map((p) => ProjectCard(
+                  project: p,
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (_) =>
+                            ProjectPage(data: data, project: p)),
+                  ),
+                ))
+            .toList(),
+      ),
+    );
+  }
+}
+
+class ProjectPage extends StatefulWidget {
+  final AppData data;
+  final Project project;
+  const ProjectPage({super.key, required this.data, required this.project});
+  @override
+  State<ProjectPage> createState() => _ProjectPageState();
+}
+
+class _ProjectPageState extends State<ProjectPage> {
+  Future<void> addTask() async {
+    final name = await textDialog(context, 'Thêm nhiệm vụ');
+    if (name != null && name.isNotEmpty) {
+      widget.project.tasks.add(Task(name));
+      await widget.data.save();
+      setState(() {});
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final p = widget.project;
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(p.name,
+            style: const TextStyle(fontWeight: FontWeight.w800)),
+        actions: [IconButton(onPressed: addTask, icon: const Icon(Icons.add))],
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Container(
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+                color: const Color(0xff3478e8),
+                borderRadius: BorderRadius.circular(16)),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(p.name,
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 21,
+                        fontWeight: FontWeight.w800)),
+                Text('${p.completed}/${p.tasks.length} nhiệm vụ hoàn thành',
+                    style: const TextStyle(color: Colors.white70)),
+                const SizedBox(height: 10),
+                LinearProgressIndicator(value: p.progress, minHeight: 7),
+                const SizedBox(height: 6),
+                Text('${(p.progress * 100).round()}%',
+                    style: const TextStyle(
+                        color: Colors.white, fontWeight: FontWeight.w800)),
+              ],
+            ),
+          ),
+          const SizedBox(height: 15),
+          ...p.tasks.map(
+            (task) => Card(
+              child: CheckboxListTile(
+                value: task.done,
+                onChanged: (_) async {
+                  task.done = !task.done;
+                  await widget.data.save();
+                  setState(() {});
+                },
+                title: Text(task.title,
+                    style: TextStyle(
+                        decoration: task.done
+                            ? TextDecoration.lineThrough
+                            : null,
+                        fontWeight: FontWeight.w600)),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class PersonalPage extends StatelessWidget {
+  final AppData data;
+  const PersonalPage({super.key, required this.data});
+  @override
+  Widget build(BuildContext context) {
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: AppBar(
+          title: const Text('Cá nhân',
+              style: TextStyle(fontWeight: FontWeight.w800)),
+          bottom: const TabBar(
+              tabs: [Tab(text: 'Thẻ tín dụng'), Tab(text: 'Khoản vay')]),
+        ),
+        body: TabBarView(
+          children: [
+            ListView(
+              padding: const EdgeInsets.all(12),
+              children: data.cards.map((c) => CreditCardTile(card: c)).toList(),
+            ),
+            ListView(
+              padding: const EdgeInsets.all(12),
+              children: data.loans.map((l) => LoanTile(loan: l)).toList(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class CreditCardTile extends StatelessWidget {
+  final CardData card;
+  const CreditCardTile({super.key, required this.card});
+  @override
+  Widget build(BuildContext context) {
+    final ratio = card.limit <= 0 ? 0.0 : (card.balance / card.limit).clamp(0.0, 1.0);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: [
+              const Icon(Icons.credit_card, color: Color(0xff5d48d9)),
+              const SizedBox(width: 10),
+              Expanded(
+                  child: Text(card.bank,
+                      style: const TextStyle(fontWeight: FontWeight.w800))),
+              Text('**** ${card.last4}'),
+            ]),
+            const SizedBox(height: 14),
+            Text('Ngày sao kê: ${card.statementDay} hàng tháng'),
+            Text('Ngày thanh toán: ${card.paymentDay} hàng tháng'),
+            const SizedBox(height: 10),
+            LinearProgressIndicator(value: ratio),
+            const SizedBox(height: 7),
+            Text('Dư hiện tại: ${money(card.balance)}',
+                style: const TextStyle(fontWeight: FontWeight.w700)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class LoanTile extends StatelessWidget {
+  final Loan loan;
+  const LoanTile({super.key, required this.loan});
+  @override
+  Widget build(BuildContext context) {
+    final ratio = loan.term <= 0 ? 0.0 : (loan.paid / loan.term).clamp(0.0, 1.0);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: [
+              const Icon(Icons.account_balance, color: Color(0xff1769e0)),
+              const SizedBox(width: 10),
+              Expanded(
+                  child: Text(loan.name,
+                      style: const TextStyle(fontWeight: FontWeight.w800))),
+            ]),
+            const SizedBox(height: 12),
+            Text('Số tiền vay: ${money(loan.amount)}'),
+            Text('Mỗi tháng: ${money(loan.monthly)}'),
+            Text('Đã trả: ${loan.paid}/${loan.term} kỳ'),
+            const SizedBox(height: 8),
+            LinearProgressIndicator(value: ratio),
+            const SizedBox(height: 8),
+            Text('Kỳ tới: ngày ${loan.paymentDay}',
+                style: const TextStyle(fontWeight: FontWeight.w700)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+Future<String?> textDialog(BuildContext context, String title) async {
+  final controller = TextEditingController();
+  final result = await showDialog<String>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Text(title),
+      content: TextField(
+        controller: controller,
+        autofocus: true,
+        decoration: const InputDecoration(labelText: 'Tên'),
+      ),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.pop(context), child: const Text('Hủy')),
+        FilledButton(
+            onPressed: () => Navigator.pop(context, controller.text.trim()),
+            child: const Text('Lưu')),
+      ],
+    ),
+  );
+  controller.dispose();
+  return result;
+}
+
+String money(double value) {
+  final n = value.round().toString();
+  final buffer = StringBuffer();
+  for (var i = 0; i < n.length; i++) {
+    if (i > 0 && (n.length - i) % 3 == 0) buffer.write('.');
+    buffer.write(n[i]);
+  }
+  return '${buffer.toString()} đ';
+}
