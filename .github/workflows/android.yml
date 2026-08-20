@@ -15,30 +15,10 @@ jobs:
           flutter-version: '3.35.2'
           channel: stable
           cache: true
-      - run: flutter create . --platforms=android
-      - run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          p = Path('android/app/build.gradle.kts')
-          s = p.read_text()
-          s = s.replace(
-              'compileOptions {',
-              'compileOptions {\n        isCoreLibraryDesugaringEnabled = true',
-              1,
-          ) if 'isCoreLibraryDesugaringEnabled = true' not in s else s
-          dep = 'dependencies {\n    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")\n}\n\n'
-          if 'coreLibraryDesugaring("com.android.tools:desugar_jdk_libs' not in s:
-              insert_at = s.find('flutter {')
-              if insert_at >= 0:
-                  s = s[:insert_at] + dep + s[insert_at:]
-              else:
-                  s += '\n' + dep
-          p.write_text(s)
-          print(s)
-          PY
       - run: flutter pub get
+      - run: flutter analyze
       - run: flutter build apk --release
       - uses: actions/upload-artifact@v4
         with:
-          name: appcanhan-release
+          name: mr-cuong-release
           path: build/app/outputs/flutter-apk/app-release.apk
